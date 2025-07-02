@@ -21,7 +21,11 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 
 2. **Python 3.10+**: Required for the server
 
-3. **Conda** (recommended): For environment management
+3. **Poetry**: For dependency management
+   ```bash
+   # Install Poetry (if not already installed)
+   curl -sSL https://install.python-poetry.org | python3 -
+   ```
 
 ## Installation
 
@@ -31,18 +35,14 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
    cd claudewrapper
    ```
 
-2. Create and activate conda environment:
+2. Install dependencies with Poetry:
    ```bash
-   conda create -n claudewrapper python=3.10
-   conda activate claudewrapper
+   poetry install
    ```
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+   This will create a virtual environment and install all dependencies.
 
-4. Configure environment:
+3. Configure environment:
    ```bash
    cp .env.example .env
    # Edit .env with your preferences
@@ -79,12 +79,12 @@ CORS_ORIGINS=["*"]
 
 2. Start the server:
    ```bash
-   python main.py
+   poetry run python main.py
    ```
 
    Or with uvicorn:
    ```bash
-   uvicorn main:app --reload --port 8000
+   poetry run uvicorn main:app --reload --port 8000
    ```
 
 ## Usage Examples
@@ -200,12 +200,17 @@ Note: Model parameter is currently ignored, and Claude Code will use its default
 
 Run tests:
 ```bash
-python -m pytest tests/
+poetry run pytest tests/
 ```
 
 Format code:
 ```bash
-black .
+poetry run black .
+```
+
+Install development dependencies:
+```bash
+poetry install --with dev
 ```
 
 ## License

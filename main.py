@@ -263,7 +263,12 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
-if __name__ == "__main__":
+def run_server():
+    """Run the server - used as Poetry script entry point."""
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    run_server()
