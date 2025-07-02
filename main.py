@@ -11,6 +11,8 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from dotenv import load_dotenv
 
 from models import (
@@ -35,8 +37,16 @@ from session_manager import session_manager
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging based on debug mode
+DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').lower() in ('true', '1', 'yes', 'on')
+VERBOSE = os.getenv('VERBOSE', 'false').lower() in ('true', '1', 'yes', 'on')
+
+# Set logging level based on debug/verbose mode
+log_level = logging.DEBUG if (DEBUG_MODE or VERBOSE) else logging.INFO
+logging.basicConfig(
+    level=log_level,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Global variable to store runtime-generated API key
@@ -128,6 +138,24 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️  Claude Code CLI verification failed!")
         logger.warning("The server will start, but requests may fail.")
     
+    # Log debug information if debug mode is enabled
+    if DEBUG_MODE or VERBOSE:
+        logger.debug("🔧 Debug mode enabled - Enhanced logging active")
+        logger.debug(f"🔧 Environment variables:")
+        logger.debug(f"   DEBUG_MODE: {DEBUG_MODE}")
+        logger.debug(f"   VERBOSE: {VERBOSE}")
+        logger.debug(f"   PORT: {os.getenv('PORT', '8000')}")
+        logger.debug(f"   CORS_ORIGINS: {os.getenv('CORS_ORIGINS', '[\"*\"]')}")
+        logger.debug(f"   MAX_TIMEOUT: {os.getenv('MAX_TIMEOUT', '600000')}")
+        logger.debug(f"   CLAUDE_CWD: {os.getenv('CLAUDE_CWD', 'Not set')}")
+        logger.debug(f"🔧 Available endpoints:")
+        logger.debug(f"   POST /v1/chat/completions - Main chat endpoint")
+        logger.debug(f"   GET  /v1/models - List available models")
+        logger.debug(f"   POST /v1/debug/request - Debug request validation")
+        logger.debug(f"   GET  /v1/auth/status - Authentication status")
+        logger.debug(f"   GET  /health - Health check")
+        logger.debug(f"🔧 API Key protection: {'Enabled' if (os.getenv('API_KEY') or runtime_api_key) else 'Disabled'}")
+    
     # Start session cleanup task
     session_manager.start_cleanup_task()
     
@@ -155,6 +183,117 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add debug logging middleware
+@app.middleware("http")
+async def debug_logging_middleware(request: Request, call_next):
+    """Log request/response details when debug mode is enabled."""
+    if not (DEBUG_MODE or VERBOSE):
+        return await call_next(request)
+    
+    # Log request details
+    start_time = asyncio.get_event_loop().time()
+    
+    # Log basic request info
+    logger.debug(f"🔍 Incoming request: {request.method} {request.url}")
+    logger.debug(f"🔍 Headers: {dict(request.headers)}")
+    
+    # Log request body for POST requests
+    if request.method == "POST" and request.url.path.startswith("/v1/"):
+        try:
+            body = await request.body()
+            if body:
+                # Decode and parse JSON to log it nicely
+                try:
+                    import json as json_lib
+                    parsed_body = json_lib.loads(body.decode())
+                    logger.debug(f"🔍 Request body: {json_lib.dumps(parsed_body, indent=2)}")
+                except:
+                    logger.debug(f"🔍 Request body (raw): {body.decode()}")
+                
+                # Recreate request with the body we consumed
+                async def receive():
+                    return {"type": "http.request", "body": body}
+                request._receive = receive
+        except Exception as e:
+            logger.debug(f"🔍 Could not read request body: {e}")
+    
+    # Process the request
+    try:
+        response = await call_next(request)
+        
+        # Log response details
+        end_time = asyncio.get_event_loop().time()
+        duration = (end_time - start_time) * 1000  # Convert to milliseconds
+        
+        logger.debug(f"🔍 Response: {response.status_code} in {duration:.2f}ms")
+        
+        return response
+        
+    except Exception as e:
+        end_time = asyncio.get_event_loop().time()
+        duration = (end_time - start_time) * 1000
+        
+        logger.debug(f"🔍 Request failed after {duration:.2f}ms: {e}")
+        raise
+
+
+# Custom exception handler for 422 validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle request validation errors with detailed debugging information."""
+    
+    # Log the validation error details
+    logger.error(f"❌ Request validation failed for {request.method} {request.url}")
+    logger.error(f"❌ Validation errors: {exc.errors()}")
+    
+    # Create detailed error response
+    error_details = []
+    for error in exc.errors():
+        location = " -> ".join(str(loc) for loc in error.get("loc", []))
+        error_details.append({
+            "field": location,
+            "message": error.get("msg", "Unknown validation error"),
+            "type": error.get("type", "validation_error"),
+            "input": error.get("input")
+        })
+    
+    # If debug mode is enabled, include the raw request body
+    debug_info = {}
+    if DEBUG_MODE or VERBOSE:
+        try:
+            body = await request.body()
+            if body:
+                debug_info["raw_request_body"] = body.decode()
+        except:
+            debug_info["raw_request_body"] = "Could not read request body"
+    
+    error_response = {
+        "error": {
+            "message": "Request validation failed - the request body doesn't match the expected format",
+            "type": "validation_error", 
+            "code": "invalid_request_error",
+            "details": error_details,
+            "help": {
+                "common_issues": [
+                    "Missing required fields (model, messages)",
+                    "Invalid field types (e.g. messages should be an array)",
+                    "Invalid role values (must be 'system', 'user', or 'assistant')",
+                    "Invalid parameter ranges (e.g. temperature must be 0-2)"
+                ],
+                "debug_tip": "Set DEBUG_MODE=true or VERBOSE=true environment variable for more detailed logging"
+            }
+        }
+    }
+    
+    # Add debug info if available
+    if debug_info:
+        error_response["error"]["debug"] = debug_info
+    
+    return JSONResponse(
+        status_code=422,
+        content=error_response
+    )
 
 
 async def generate_streaming_response(
@@ -462,6 +601,74 @@ async def check_compatibility(request_body: ChatCompletionRequest):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "claude-code-openai-wrapper"}
+
+
+@app.post("/v1/debug/request")
+async def debug_request_validation(request: Request):
+    """Debug endpoint to test request validation and see what's being sent."""
+    try:
+        # Get the raw request body
+        body = await request.body()
+        raw_body = body.decode() if body else ""
+        
+        # Try to parse as JSON
+        parsed_body = None
+        json_error = None
+        try:
+            import json as json_lib
+            parsed_body = json_lib.loads(raw_body) if raw_body else {}
+        except Exception as e:
+            json_error = str(e)
+        
+        # Try to validate against our model
+        validation_result = {"valid": False, "errors": []}
+        if parsed_body:
+            try:
+                chat_request = ChatCompletionRequest(**parsed_body)
+                validation_result = {"valid": True, "validated_data": chat_request.model_dump()}
+            except ValidationError as e:
+                validation_result = {
+                    "valid": False,
+                    "errors": [
+                        {
+                            "field": " -> ".join(str(loc) for loc in error.get("loc", [])),
+                            "message": error.get("msg", "Unknown error"),
+                            "type": error.get("type", "validation_error"),
+                            "input": error.get("input")
+                        }
+                        for error in e.errors()
+                    ]
+                }
+        
+        return {
+            "debug_info": {
+                "headers": dict(request.headers),
+                "method": request.method,
+                "url": str(request.url),
+                "raw_body": raw_body,
+                "json_parse_error": json_error,
+                "parsed_body": parsed_body,
+                "validation_result": validation_result,
+                "debug_mode_enabled": DEBUG_MODE or VERBOSE,
+                "example_valid_request": {
+                    "model": "claude-3-sonnet-20240229",
+                    "messages": [
+                        {"role": "user", "content": "Hello, world!"}
+                    ],
+                    "stream": False
+                }
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "debug_info": {
+                "error": f"Debug endpoint error: {str(e)}",
+                "headers": dict(request.headers),
+                "method": request.method,
+                "url": str(request.url)
+            }
+        }
 
 
 @app.get("/v1/auth/status")
