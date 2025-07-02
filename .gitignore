@@ -47,3 +47,12 @@ htmlcov/
 
 # Development documentation
 IMPLEMENTATION_PLAN.md
+CLAUDE.md
+PARAMETER_MAPPING.md
+
+# Debug and temporary test files
+debug_*.py
+test_debug_*.py
+test_performance_*.py
+test_user_*.py
+test_new_*.py
