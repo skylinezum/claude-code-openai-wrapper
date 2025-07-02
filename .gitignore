@@ -44,3 +44,6 @@ htmlcov/
 
 # Claude Code
 .claude/
+
+# Development documentation
+IMPLEMENTATION_PLAN.md
