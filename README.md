@@ -106,20 +106,22 @@ CORS_ORIGINS=["*"]
    ```
 
 2. Start the server:
+
+   **Development mode (recommended - auto-reloads on changes):**
+   ```bash
+   poetry run uvicorn main:app --reload --port 8000
+   ```
+
+   **Production mode:**
    ```bash
    poetry run python main.py
    ```
 
-   **Port Options:**
+   **Port Options for production mode:**
    - Default: Uses port 8000 (or PORT from .env)
    - If port is in use, automatically finds next available port
    - Specify custom port: `poetry run python main.py 9000`
    - Set in environment: `PORT=9000 poetry run python main.py`
-
-   **Alternative with uvicorn:**
-   ```bash
-   poetry run uvicorn main:app --reload --port 8000
-   ```
 
 ## Usage Examples
 

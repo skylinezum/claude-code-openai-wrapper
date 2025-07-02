@@ -44,6 +44,13 @@ This project provides an OpenAI API-compatible wrapper for Claude Code, allowing
    ```
 
 3. Run the server:
+   
+   **Development mode (auto-reload on file changes):**
+   ```bash
+   poetry run uvicorn main:app --reload --port 8000
+   ```
+   
+   **Production mode:**
    ```bash
    poetry run python main.py
    ```

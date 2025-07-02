@@ -25,6 +25,7 @@ from models import (
 from claude_cli import ClaudeCodeCLI
 from message_adapter import MessageAdapter
 from auth import verify_api_key, security, validate_claude_code_auth, get_claude_code_auth_info
+from parameter_validator import ParameterValidator
 
 # Load environment variables
 load_dotenv()
@@ -125,8 +126,6 @@ async def generate_streaming_response(
             max_turns=claude_options.get('max_turns', 10),
             allowed_tools=claude_options.get('allowed_tools'),
             disallowed_tools=claude_options.get('disallowed_tools'),
-            permission_mode=claude_options.get('permission_mode'),
-            max_thinking_tokens=claude_options.get('max_thinking_tokens'),
             stream=True
         ):
             chunks_buffer.append(chunk)
@@ -270,8 +269,6 @@ async def chat_completions(
                 max_turns=claude_options.get('max_turns', 10),
                 allowed_tools=claude_options.get('allowed_tools'),
                 disallowed_tools=claude_options.get('disallowed_tools'),
-                permission_mode=claude_options.get('permission_mode'),
-                max_thinking_tokens=claude_options.get('max_thinking_tokens'),
                 stream=False
             ):
                 chunks.append(chunk)

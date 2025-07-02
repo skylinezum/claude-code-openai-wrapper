@@ -115,18 +115,26 @@ class ClaudeCodeCLI:
                 
                 # Run the query and yield messages
                 async for message in query(prompt=prompt, options=options):
+                    # Debug logging
+                    logger.debug(f"Raw SDK message type: {type(message)}")
+                    logger.debug(f"Raw SDK message: {message}")
+                    
                     # Convert message object to dict if needed
                     if hasattr(message, '__dict__') and not isinstance(message, dict):
                         # Convert object to dict for consistent handling
-                        message_dict = {
-                            'type': getattr(message, 'type', None),
-                            'message': getattr(message, 'message', None),
-                            'session_id': getattr(message, 'session_id', None)
-                        }
-                        # Add other attributes that might exist
-                        for attr in ['subtype', 'total_cost_usd', 'duration_ms', 'num_turns', 'model']:
-                            if hasattr(message, attr):
-                                message_dict[attr] = getattr(message, attr)
+                        message_dict = {}
+                        
+                        # Get all attributes from the object
+                        for attr_name in dir(message):
+                            if not attr_name.startswith('_'):  # Skip private attributes
+                                try:
+                                    attr_value = getattr(message, attr_name)
+                                    if not callable(attr_value):  # Skip methods
+                                        message_dict[attr_name] = attr_value
+                                except:
+                                    pass
+                        
+                        logger.debug(f"Converted message dict: {message_dict}")
                         yield message_dict
                     else:
                         yield message
@@ -153,7 +161,23 @@ class ClaudeCodeCLI:
     def parse_claude_message(self, messages: List[Dict[str, Any]]) -> Optional[str]:
         """Extract the assistant message from Claude Code SDK messages."""
         for message in messages:
-            if message.get("type") == "assistant" and "message" in message:
+            # Look for AssistantMessage type (new SDK format)
+            if "content" in message and isinstance(message["content"], list):
+                text_parts = []
+                for block in message["content"]:
+                    # Handle TextBlock objects
+                    if hasattr(block, 'text'):
+                        text_parts.append(block.text)
+                    elif isinstance(block, dict) and block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif isinstance(block, str):
+                        text_parts.append(block)
+                
+                if text_parts:
+                    return "\n".join(text_parts)
+            
+            # Fallback: look for old format
+            elif message.get("type") == "assistant" and "message" in message:
                 sdk_message = message["message"]
                 if isinstance(sdk_message, dict) and "content" in sdk_message:
                     content = sdk_message["content"]
@@ -166,6 +190,7 @@ class ClaudeCodeCLI:
                         return "\n".join(text_parts) if text_parts else None
                     elif isinstance(content, str):
                         return content
+        
         return None
         
     def extract_metadata(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -179,7 +204,23 @@ class ClaudeCodeCLI:
         }
         
         for message in messages:
-            if message.get("type") == "result":
+            # New SDK format - ResultMessage
+            if message.get("subtype") == "success" and "total_cost_usd" in message:
+                metadata.update({
+                    "total_cost_usd": message.get("total_cost_usd", 0.0),
+                    "duration_ms": message.get("duration_ms", 0),
+                    "num_turns": message.get("num_turns", 0),
+                    "session_id": message.get("session_id")
+                })
+            # New SDK format - SystemMessage  
+            elif message.get("subtype") == "init" and "data" in message:
+                data = message["data"]
+                metadata.update({
+                    "session_id": data.get("session_id"),
+                    "model": data.get("model")
+                })
+            # Old format fallback
+            elif message.get("type") == "result":
                 metadata.update({
                     "total_cost_usd": message.get("total_cost_usd", 0.0),
                     "duration_ms": message.get("duration_ms", 0),
