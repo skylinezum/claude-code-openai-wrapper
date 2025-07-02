@@ -6,6 +6,7 @@ from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
@@ -23,7 +24,7 @@ from models import (
 )
 from claude_cli import ClaudeCodeCLI
 from message_adapter import MessageAdapter
-from auth import verify_api_key
+from auth import verify_api_key, security
 
 # Load environment variables
 load_dotenv()
@@ -43,10 +44,20 @@ claude_cli = ClaudeCodeCLI(
 async def lifespan(app: FastAPI):
     """Verify Claude CLI on startup."""
     logger.info("Verifying Claude Code CLI...")
-    if not await claude_cli.verify_cli():
-        logger.error("Failed to verify Claude Code CLI. Please ensure it's installed and authenticated.")
-        raise RuntimeError("Claude Code CLI verification failed")
-    logger.info("Claude Code CLI verified successfully")
+    
+    # Allow server to start even if CLI verification fails
+    cli_verified = await claude_cli.verify_cli()
+    
+    if cli_verified:
+        logger.info("✅ Claude Code CLI verified successfully")
+    else:
+        logger.warning("⚠️  Claude Code CLI verification failed!")
+        logger.warning("The server will start, but requests may fail.")
+        logger.warning("Please ensure Claude Code is installed and authenticated:")
+        logger.warning("  1. Install: Follow Anthropic's installation guide")
+        logger.warning("  2. Test: claude --print 'Hello'")
+        logger.warning("  3. Check: claude --version")
+    
     yield
 
 
@@ -156,16 +167,28 @@ async def generate_streaming_response(
         yield f"data: {json.dumps(error_chunk)}\n\n"
 
 
-@app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key)])
-async def chat_completions(request: ChatCompletionRequest):
+@app.post("/v1/chat/completions")
+async def chat_completions(
+    request_body: ChatCompletionRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+):
     """OpenAI-compatible chat completions endpoint."""
+    # Check API key if configured
+    API_KEY = os.getenv("API_KEY")
+    if API_KEY and (not credentials or credentials.credentials != API_KEY):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key" if credentials else "Missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     try:
         request_id = f"chatcmpl-{os.urandom(8).hex()}"
         
-        if request.stream:
+        if request_body.stream:
             # Return streaming response
             return StreamingResponse(
-                generate_streaming_response(request, request_id),
+                generate_streaming_response(request_body, request_id),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -175,7 +198,7 @@ async def chat_completions(request: ChatCompletionRequest):
         else:
             # Non-streaming response
             # Convert messages to prompt
-            prompt, system_prompt = MessageAdapter.messages_to_prompt(request.messages)
+            prompt, system_prompt = MessageAdapter.messages_to_prompt(request_body.messages)
             
             # Filter content
             prompt = MessageAdapter.filter_content(prompt)
@@ -187,7 +210,7 @@ async def chat_completions(request: ChatCompletionRequest):
             async for chunk in claude_cli.run_completion(
                 prompt=prompt,
                 system_prompt=system_prompt,
-                model=request.model if request.model else None,
+                model=request_body.model if request_body.model else None,
                 stream=False
             ):
                 chunks.append(chunk)
@@ -205,7 +228,7 @@ async def chat_completions(request: ChatCompletionRequest):
             # Create response
             response = ChatCompletionResponse(
                 id=request_id,
-                model=request.model,
+                model=request_body.model,
                 choices=[Choice(
                     index=0,
                     message=Message(role="assistant", content=assistant_content),
@@ -263,12 +286,66 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
-def run_server():
+def find_available_port(start_port: int = 8000, max_attempts: int = 10) -> int:
+    """Find an available port starting from start_port."""
+    import socket
+    
+    for port in range(start_port, start_port + max_attempts):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        try:
+            result = sock.connect_ex(('127.0.0.1', port))
+            if result != 0:  # Port is available
+                return port
+        except Exception:
+            return port
+        finally:
+            sock.close()
+    
+    raise RuntimeError(f"No available ports found in range {start_port}-{start_port + max_attempts - 1}")
+
+
+def run_server(port: int = None):
     """Run the server - used as Poetry script entry point."""
     import uvicorn
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    import socket
+    
+    # Priority: CLI arg > ENV var > default
+    if port is None:
+        port = int(os.getenv("PORT", "8000"))
+    preferred_port = port
+    
+    try:
+        # Try the preferred port first
+        uvicorn.run(app, host="0.0.0.0", port=preferred_port)
+    except OSError as e:
+        if "Address already in use" in str(e) or e.errno == 48:
+            logger.warning(f"Port {preferred_port} is already in use. Finding alternative port...")
+            try:
+                available_port = find_available_port(preferred_port + 1)
+                logger.info(f"Starting server on alternative port {available_port}")
+                print(f"\n🚀 Server starting on http://localhost:{available_port}")
+                print(f"📝 Update your client base_url to: http://localhost:{available_port}/v1")
+                uvicorn.run(app, host="0.0.0.0", port=available_port)
+            except RuntimeError as port_error:
+                logger.error(f"Could not find available port: {port_error}")
+                print(f"\n❌ Error: {port_error}")
+                print("💡 Try setting a specific port with: PORT=9000 poetry run python main.py")
+                raise
+        else:
+            raise
 
 
 if __name__ == "__main__":
-    run_server()
+    import sys
+    
+    # Simple CLI argument parsing for port
+    port = None
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+            print(f"Using port from command line: {port}")
+        except ValueError:
+            print(f"Invalid port number: {sys.argv[1]}. Using default.")
+    
+    run_server(port)
