@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import logging
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, Dict, Any
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Depends
@@ -24,7 +24,7 @@ from models import (
 )
 from claude_cli import ClaudeCodeCLI
 from message_adapter import MessageAdapter
-from auth import verify_api_key, security
+from auth import verify_api_key, security, validate_claude_code_auth, get_claude_code_auth_info
 
 # Load environment variables
 load_dotenv()
@@ -35,17 +35,31 @@ logger = logging.getLogger(__name__)
 
 # Initialize Claude CLI
 claude_cli = ClaudeCodeCLI(
-    cli_path=os.getenv("CLAUDE_CLI_PATH", "claude"),
-    timeout=int(os.getenv("MAX_TIMEOUT", "600000"))
+    timeout=int(os.getenv("MAX_TIMEOUT", "600000")),
+    cwd=os.getenv("CLAUDE_CWD")
 )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Verify Claude CLI on startup."""
-    logger.info("Verifying Claude Code CLI...")
+    """Verify Claude Code authentication and CLI on startup."""
+    logger.info("Verifying Claude Code authentication and CLI...")
     
-    # Allow server to start even if CLI verification fails
+    # Validate authentication first
+    auth_valid, auth_info = validate_claude_code_auth()
+    
+    if not auth_valid:
+        logger.error("❌ Claude Code authentication failed!")
+        for error in auth_info.get('errors', []):
+            logger.error(f"  - {error}")
+        logger.warning("Authentication setup guide:")
+        logger.warning("  1. For Anthropic API: Set ANTHROPIC_API_KEY")
+        logger.warning("  2. For Bedrock: Set CLAUDE_CODE_USE_BEDROCK=1 + AWS credentials")
+        logger.warning("  3. For Vertex AI: Set CLAUDE_CODE_USE_VERTEX=1 + GCP credentials")
+    else:
+        logger.info(f"✅ Claude Code authentication validated: {auth_info['method']}")
+    
+    # Then verify CLI
     cli_verified = await claude_cli.verify_cli()
     
     if cli_verified:
@@ -53,10 +67,6 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️  Claude Code CLI verification failed!")
         logger.warning("The server will start, but requests may fail.")
-        logger.warning("Please ensure Claude Code is installed and authenticated:")
-        logger.warning("  1. Install: Follow Anthropic's installation guide")
-        logger.warning("  2. Test: claude --print 'Hello'")
-        logger.warning("  3. Check: claude --version")
     
     yield
 
@@ -82,7 +92,8 @@ app.add_middleware(
 
 async def generate_streaming_response(
     request: ChatCompletionRequest,
-    request_id: str
+    request_id: str,
+    claude_headers: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[str, None]:
     """Generate SSE formatted streaming response."""
     try:
@@ -94,12 +105,28 @@ async def generate_streaming_response(
         if system_prompt:
             system_prompt = MessageAdapter.filter_content(system_prompt)
         
+        # Get Claude Code SDK options from request
+        claude_options = request.to_claude_options()
+        
+        # Merge with Claude-specific headers if provided
+        if claude_headers:
+            claude_options.update(claude_headers)
+        
+        # Validate model
+        if claude_options.get('model'):
+            ParameterValidator.validate_model(claude_options['model'])
+        
         # Run Claude Code
         chunks_buffer = []
         async for chunk in claude_cli.run_completion(
             prompt=prompt,
             system_prompt=system_prompt,
-            model=request.model if request.model else None,
+            model=claude_options.get('model'),
+            max_turns=claude_options.get('max_turns', 10),
+            allowed_tools=claude_options.get('allowed_tools'),
+            disallowed_tools=claude_options.get('disallowed_tools'),
+            permission_mode=claude_options.get('permission_mode'),
+            max_thinking_tokens=claude_options.get('max_thinking_tokens'),
             stream=True
         ):
             chunks_buffer.append(chunk)
@@ -170,25 +197,43 @@ async def generate_streaming_response(
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request_body: ChatCompletionRequest,
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ):
     """OpenAI-compatible chat completions endpoint."""
-    # Check API key if configured
-    API_KEY = os.getenv("API_KEY")
-    if API_KEY and (not credentials or credentials.credentials != API_KEY):
+    # Check FastAPI API key if configured
+    await verify_api_key(request, credentials)
+    
+    # Validate Claude Code authentication
+    auth_valid, auth_info = validate_claude_code_auth()
+    
+    if not auth_valid:
+        error_detail = {
+            "message": "Claude Code authentication failed",
+            "errors": auth_info.get('errors', []),
+            "method": auth_info.get('method', 'none'),
+            "help": "Check /v1/auth/status for detailed authentication information"
+        }
         raise HTTPException(
-            status_code=401,
-            detail="Invalid API key" if credentials else "Missing API key",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=503,
+            detail=error_detail
         )
     
     try:
         request_id = f"chatcmpl-{os.urandom(8).hex()}"
         
+        # Extract Claude-specific parameters from headers
+        claude_headers = ParameterValidator.extract_claude_headers(dict(request.headers))
+        
+        # Log compatibility info
+        if logger.isEnabledFor(logging.DEBUG):
+            compatibility_report = CompatibilityReporter.generate_compatibility_report(request_body)
+            logger.debug(f"Compatibility report: {compatibility_report}")
+        
         if request_body.stream:
             # Return streaming response
             return StreamingResponse(
-                generate_streaming_response(request_body, request_id),
+                generate_streaming_response(request_body, request_id, claude_headers),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -205,12 +250,28 @@ async def chat_completions(
             if system_prompt:
                 system_prompt = MessageAdapter.filter_content(system_prompt)
             
+            # Get Claude Code SDK options from request
+            claude_options = request_body.to_claude_options()
+            
+            # Merge with Claude-specific headers
+            if claude_headers:
+                claude_options.update(claude_headers)
+            
+            # Validate model
+            if claude_options.get('model'):
+                ParameterValidator.validate_model(claude_options['model'])
+            
             # Collect all chunks
             chunks = []
             async for chunk in claude_cli.run_completion(
                 prompt=prompt,
                 system_prompt=system_prompt,
-                model=request_body.model if request_body.model else None,
+                model=claude_options.get('model'),
+                max_turns=claude_options.get('max_turns', 10),
+                allowed_tools=claude_options.get('allowed_tools'),
+                disallowed_tools=claude_options.get('disallowed_tools'),
+                permission_mode=claude_options.get('permission_mode'),
+                max_thinking_tokens=claude_options.get('max_thinking_tokens'),
                 stream=False
             ):
                 chunks.append(chunk)
@@ -265,10 +326,45 @@ async def list_models():
     }
 
 
+@app.post("/v1/compatibility")
+async def check_compatibility(request_body: ChatCompletionRequest):
+    """Check OpenAI API compatibility for a request."""
+    report = CompatibilityReporter.generate_compatibility_report(request_body)
+    return {
+        "compatibility_report": report,
+        "claude_code_sdk_options": {
+            "supported": [
+                "model", "system_prompt", "max_turns", "allowed_tools", 
+                "disallowed_tools", "permission_mode", "max_thinking_tokens",
+                "continue_conversation", "resume", "cwd"
+            ],
+            "custom_headers": [
+                "X-Claude-Max-Turns", "X-Claude-Allowed-Tools", 
+                "X-Claude-Disallowed-Tools", "X-Claude-Permission-Mode",
+                "X-Claude-Max-Thinking-Tokens"
+            ]
+        }
+    }
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "claude-code-openai-wrapper"}
+
+
+@app.get("/v1/auth/status")
+async def get_auth_status():
+    """Get Claude Code authentication status."""
+    auth_info = get_claude_code_auth_info()
+    
+    return {
+        "claude_code_auth": auth_info,
+        "server_info": {
+            "api_key_required": bool(os.getenv("API_KEY")),
+            "version": "1.0.0"
+        }
+    }
 
 
 @app.exception_handler(HTTPException)

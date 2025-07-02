@@ -1,7 +1,10 @@
 from typing import List, Optional, Dict, Any, Union, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Message(BaseModel):
@@ -23,6 +26,59 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
+    
+    @field_validator('n')
+    @classmethod
+    def validate_n(cls, v):
+        if v > 1:
+            raise ValueError("Claude Code SDK does not support multiple choices (n > 1). Only single response generation is supported.")
+        return v
+    
+    def log_unsupported_parameters(self):
+        """Log warnings for parameters that are not supported by Claude Code SDK."""
+        warnings = []
+        
+        if self.temperature != 1.0:
+            warnings.append(f"temperature={self.temperature} is not supported by Claude Code SDK and will be ignored")
+        
+        if self.top_p != 1.0:
+            warnings.append(f"top_p={self.top_p} is not supported by Claude Code SDK and will be ignored")
+            
+        if self.max_tokens is not None:
+            warnings.append(f"max_tokens={self.max_tokens} is not supported by Claude Code SDK and will be ignored. Consider using max_turns to limit conversation length")
+        
+        if self.presence_penalty != 0:
+            warnings.append(f"presence_penalty={self.presence_penalty} is not supported by Claude Code SDK and will be ignored")
+            
+        if self.frequency_penalty != 0:
+            warnings.append(f"frequency_penalty={self.frequency_penalty} is not supported by Claude Code SDK and will be ignored")
+            
+        if self.logit_bias:
+            warnings.append(f"logit_bias is not supported by Claude Code SDK and will be ignored")
+            
+        if self.stop:
+            warnings.append(f"stop sequences are not supported by Claude Code SDK and will be ignored")
+        
+        for warning in warnings:
+            logger.warning(f"OpenAI API compatibility: {warning}")
+    
+    def to_claude_options(self) -> Dict[str, Any]:
+        """Convert OpenAI request parameters to Claude Code SDK options."""
+        # Log warnings for unsupported parameters
+        self.log_unsupported_parameters()
+        
+        options = {}
+        
+        # Direct mappings
+        if self.model:
+            options['model'] = self.model
+            
+        # Use user field for session identification if provided
+        if self.user:
+            # Could be used for analytics/logging or session tracking
+            logger.info(f"Request from user: {self.user}")
+        
+        return options
 
 
 class Choice(BaseModel):

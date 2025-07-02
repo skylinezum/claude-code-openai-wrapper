@@ -1,20 +1,27 @@
 # Claude Code OpenAI API Wrapper
 
-An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Code with any OpenAI client library.
+An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Code with any OpenAI client library. **Now powered by the official Claude Code Python SDK** with enhanced authentication and features.
 
 ## Status
 
 ✅ **Fully functional** - All core features working and tested:
-- ✅ Chat completions endpoint
+- ✅ Chat completions endpoint with **SDK integration**
 - ✅ Streaming responses  
 - ✅ OpenAI SDK compatibility
+- ✅ **Enhanced authentication** (API key, Bedrock, Vertex AI, CLI auth)
+- ✅ **System prompt support** 
 - ✅ Model selection support
 - ✅ Automatic tool usage
+- ✅ **Real cost and metadata tracking**
 - ✅ Health and models endpoints
 
 ## Features
 
 - OpenAI-compatible `/v1/chat/completions` endpoint
+- **NEW**: Official Claude Code Python SDK integration (v0.0.14)
+- **NEW**: Multiple authentication methods with automatic detection
+- **NEW**: System prompt support via SDK options
+- **NEW**: Enhanced metadata extraction (costs, tokens, session IDs)
 - Support for both streaming and non-streaming responses
 - Automatic tool usage based on prompts (Read, Write, Bash, etc.)
 - Optional API key authentication
@@ -22,16 +29,26 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 
 ## Prerequisites
 
-1. **Claude Code CLI**: Install and authenticate Claude Code CLI
+1. **Claude Code CLI**: Install Claude Code CLI
    ```bash
    # Install Claude Code (follow Anthropic's official guide)
-   # Then authenticate:
-   claude auth login
+   npm install -g @anthropic-ai/claude-code
    ```
 
-2. **Python 3.10+**: Required for the server
+2. **Authentication**: Choose one method:
+   - **Option A**: Authenticate via CLI (Recommended for development)
+     ```bash
+     claude auth login
+     ```
+   - **Option B**: Set environment variable
+     ```bash
+     export ANTHROPIC_API_KEY=your-api-key
+     ```
+   - **Option C**: Use AWS Bedrock or Google Vertex AI (see Configuration section)
 
-3. **Poetry**: For dependency management
+3. **Python 3.10+**: Required for the server
+
+4. **Poetry**: For dependency management
    ```bash
    # Install Poetry (if not already installed)
    curl -sSL https://install.python-poetry.org | python3 -
@@ -183,15 +200,17 @@ The model parameter is passed to Claude Code via the `--model` flag.
 
 - `POST /v1/chat/completions` - OpenAI-compatible chat completions
 - `GET /v1/models` - List available models
+- `GET /v1/auth/status` - **NEW**: Check authentication status and configuration
 - `GET /health` - Health check endpoint
 
 ## Limitations
 
 - Images in messages are converted to text placeholders
-- Token usage is estimated (not exact)
-- Each request spawns a new Claude process (stateless)
+- **IMPROVED**: Token usage and costs now more accurate via SDK metadata
+- **IMPROVED**: Better session management via SDK (was stateless CLI spawning)
 - No support for function calling (tools work automatically)
 - No support for logit_bias, presence_penalty, frequency_penalty
+- Some OpenAI parameters (temperature, top_p) not yet mapped to SDK options
 
 ## Troubleshooting
 
