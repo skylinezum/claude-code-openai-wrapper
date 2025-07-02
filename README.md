@@ -13,7 +13,8 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 - ✅ Model selection support with validation
 - ✅ Automatic tool usage (Read, Write, Bash, etc.)
 - ✅ **Real-time cost and token tracking** from SDK
-- ✅ **Session management** with proper session IDs
+- ✅ **Session continuity** with conversation history across requests 🆕
+- ✅ **Session management endpoints** for full session control 🆕
 - ✅ Health, auth status, and models endpoints
 - ✅ **Development mode** with auto-reload
 
@@ -248,12 +249,111 @@ for chunk in stream:
 
 The model parameter is passed to Claude Code via the `--model` flag.
 
+## Session Continuity 🆕
+
+The wrapper now supports **session continuity**, allowing you to maintain conversation context across multiple requests. This is a powerful feature that goes beyond the standard OpenAI API.
+
+### How It Works
+
+- **Stateless Mode** (default): Each request is independent, just like the standard OpenAI API
+- **Session Mode**: Include a `session_id` to maintain conversation history across requests
+
+### Using Sessions with OpenAI SDK
+
+```python
+import openai
+
+client = openai.OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed"
+)
+
+# Start a conversation with session continuity
+response1 = client.chat.completions.create(
+    model="claude-3-5-sonnet-20241022",
+    messages=[
+        {"role": "user", "content": "Hello! My name is Alice and I'm learning Python."}
+    ],
+    extra_body={"session_id": "my-learning-session"}
+)
+
+# Continue the conversation - Claude remembers the context
+response2 = client.chat.completions.create(
+    model="claude-3-5-sonnet-20241022", 
+    messages=[
+        {"role": "user", "content": "What's my name and what am I learning?"}
+    ],
+    extra_body={"session_id": "my-learning-session"}  # Same session ID
+)
+# Claude will remember: "Your name is Alice and you're learning Python."
+```
+
+### Using Sessions with curl
+
+```bash
+# First message
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [{"role": "user", "content": "My favorite color is blue."}],
+    "session_id": "my-session"
+  }'
+
+# Follow-up message - context is maintained
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022", 
+    "messages": [{"role": "user", "content": "What's my favorite color?"}],
+    "session_id": "my-session"
+  }'
+```
+
+### Session Management
+
+The wrapper provides endpoints to manage active sessions:
+
+- `GET /v1/sessions` - List all active sessions
+- `GET /v1/sessions/{session_id}` - Get session details
+- `DELETE /v1/sessions/{session_id}` - Delete a session
+- `GET /v1/sessions/stats` - Get session statistics
+
+```bash
+# List active sessions
+curl http://localhost:8000/v1/sessions
+
+# Get session details
+curl http://localhost:8000/v1/sessions/my-session
+
+# Delete a session
+curl -X DELETE http://localhost:8000/v1/sessions/my-session
+```
+
+### Session Features
+
+- **Automatic Expiration**: Sessions expire after 1 hour of inactivity
+- **Streaming Support**: Session continuity works with both streaming and non-streaming requests
+- **Memory Persistence**: Full conversation history is maintained within the session
+- **Efficient Storage**: Only active sessions are kept in memory
+
+### Examples
+
+See `examples/session_continuity.py` for comprehensive Python examples and `examples/session_curl_example.sh` for curl examples.
+
 ## API Endpoints
 
-- `POST /v1/chat/completions` - OpenAI-compatible chat completions
+### Core Endpoints
+- `POST /v1/chat/completions` - OpenAI-compatible chat completions (supports `session_id`)
 - `GET /v1/models` - List available models
-- `GET /v1/auth/status` - **NEW**: Check authentication status and configuration
+- `GET /v1/auth/status` - Check authentication status and configuration
 - `GET /health` - Health check endpoint
+
+### Session Management Endpoints 🆕
+- `GET /v1/sessions` - List all active sessions
+- `GET /v1/sessions/{session_id}` - Get detailed session information
+- `DELETE /v1/sessions/{session_id}` - Delete a specific session
+- `GET /v1/sessions/stats` - Get session manager statistics
 
 ## Limitations & Roadmap
 

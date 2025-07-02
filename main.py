@@ -20,12 +20,15 @@ from models import (
     Usage,
     StreamChoice,
     ErrorResponse,
-    ErrorDetail
+    ErrorDetail,
+    SessionInfo,
+    SessionListResponse
 )
 from claude_cli import ClaudeCodeCLI
 from message_adapter import MessageAdapter
 from auth import verify_api_key, security, validate_claude_code_auth, get_claude_code_auth_info
-from parameter_validator import ParameterValidator
+from parameter_validator import ParameterValidator, CompatibilityReporter
+from session_manager import session_manager
 
 # Load environment variables
 load_dotenv()
@@ -69,7 +72,14 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️  Claude Code CLI verification failed!")
         logger.warning("The server will start, but requests may fail.")
     
+    # Start session cleanup task
+    session_manager.start_cleanup_task()
+    
     yield
+    
+    # Cleanup on shutdown
+    logger.info("Shutting down session manager...")
+    session_manager.shutdown()
 
 
 # Create FastAPI app
@@ -98,8 +108,13 @@ async def generate_streaming_response(
 ) -> AsyncGenerator[str, None]:
     """Generate SSE formatted streaming response."""
     try:
+        # Process messages with session management
+        all_messages, actual_session_id = session_manager.process_messages(
+            request.messages, request.session_id
+        )
+        
         # Convert messages to prompt
-        prompt, system_prompt = MessageAdapter.messages_to_prompt(request.messages)
+        prompt, system_prompt = MessageAdapter.messages_to_prompt(all_messages)
         
         # Filter content for unsupported features
         prompt = MessageAdapter.filter_content(prompt)
@@ -168,6 +183,13 @@ async def generate_streaming_response(
                         )
                         
                         yield f"data: {stream_chunk.model_dump_json()}\n\n"
+        
+        # Extract assistant response from all chunks for session storage
+        if actual_session_id and chunks_buffer:
+            assistant_content = claude_cli.parse_claude_message(chunks_buffer)
+            if assistant_content:
+                assistant_message = Message(role="assistant", content=assistant_content)
+                session_manager.add_assistant_response(actual_session_id, assistant_message)
         
         # Send final chunk with finish reason
         final_chunk = ChatCompletionStreamResponse(
@@ -241,8 +263,15 @@ async def chat_completions(
             )
         else:
             # Non-streaming response
+            # Process messages with session management
+            all_messages, actual_session_id = session_manager.process_messages(
+                request_body.messages, request_body.session_id
+            )
+            
+            logger.info(f"Chat completion: session_id={actual_session_id}, total_messages={len(all_messages)}")
+            
             # Convert messages to prompt
-            prompt, system_prompt = MessageAdapter.messages_to_prompt(request_body.messages)
+            prompt, system_prompt = MessageAdapter.messages_to_prompt(all_messages)
             
             # Filter content
             prompt = MessageAdapter.filter_content(prompt)
@@ -278,6 +307,11 @@ async def chat_completions(
             
             if not assistant_content:
                 raise HTTPException(status_code=500, detail="No response from Claude Code")
+            
+            # Add assistant response to session if using session mode
+            if actual_session_id:
+                assistant_message = Message(role="assistant", content=assistant_content)
+                session_manager.add_assistant_response(actual_session_id, assistant_message)
             
             # Estimate tokens (rough approximation)
             prompt_tokens = MessageAdapter.estimate_tokens(prompt)
@@ -362,6 +396,54 @@ async def get_auth_status():
             "version": "1.0.0"
         }
     }
+
+
+@app.get("/v1/sessions/stats")
+async def get_session_stats(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+):
+    """Get session manager statistics."""
+    stats = session_manager.get_stats()
+    return {
+        "session_stats": stats,
+        "cleanup_interval_minutes": session_manager.cleanup_interval_minutes,
+        "default_ttl_hours": session_manager.default_ttl_hours
+    }
+
+
+@app.get("/v1/sessions")
+async def list_sessions(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+):
+    """List all active sessions."""
+    sessions = session_manager.list_sessions()
+    return SessionListResponse(sessions=sessions, total=len(sessions))
+
+
+@app.get("/v1/sessions/{session_id}")
+async def get_session(
+    session_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+):
+    """Get information about a specific session."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return session.to_session_info()
+
+
+@app.delete("/v1/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+):
+    """Delete a specific session."""
+    deleted = session_manager.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return {"message": f"Session {session_id} deleted successfully"}
 
 
 @app.exception_handler(HTTPException)
