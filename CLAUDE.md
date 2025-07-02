@@ -62,7 +62,7 @@ The wrapper now supports multiple Claude Code authentication methods:
 ### Method 1: Claude CLI Authentication (Recommended for Development)
 If you're already authenticated with Claude Code CLI, no additional setup is needed:
 ```bash
-claude auth  # If not already authenticated
+claude auth login  # If not already authenticated
 poetry run python main.py
 ```
 
@@ -118,7 +118,6 @@ poetry run python main.py
 - **✅ Comprehensive Testing**: All endpoints tested and working
 
 ### 🔄 **In Progress Features**
-- **Session Continuity**: Conversation history across requests (SDK foundation ready)
 - **Tool Configuration**: Endpoints for managing allowed/disallowed tools
 - **Enhanced Streaming**: Better chunk handling and streaming optimization
 - **OpenAI Parameter Mapping**: Support for temperature, top_p, max_tokens

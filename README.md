@@ -60,8 +60,8 @@ claude auth login  # Recommended for development
 # OR set: export ANTHROPIC_API_KEY=your-api-key
 
 # 3. Clone and setup the wrapper
-git clone <repository-url>
-cd claudewrapper
+git clone https://github.com/RichardAtCT/claude-code-openai-wrapper
+cd claude-code-openai-wrapper
 poetry install
 
 # 4. Start the server
@@ -104,8 +104,8 @@ poetry run python test_endpoints.py
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd claudewrapper
+   git clone https://github.com/RichardAtCT/claude-code-openai-wrapper
+   cd claude-code-openai-wrapper
    ```
 
 2. Install dependencies with Poetry:
@@ -364,7 +364,6 @@ See `examples/session_continuity.py` for comprehensive Python examples and `exam
 - **Multiple responses** (`n > 1`) not supported
 
 ### 🛣 **Planned Enhancements** 
-- [ ] **Session continuity** - conversation history across requests
 - [ ] **Tool configuration** - allowed/disallowed tools endpoints  
 - [ ] **OpenAI parameter mapping** - temperature, top_p, max_tokens support
 - [ ] **Enhanced streaming** - better chunk handling
@@ -376,6 +375,7 @@ See `examples/session_continuity.py` for comprehensive Python examples and `exam
 - **✅ Multi-auth**: Support for CLI, API key, Bedrock, and Vertex AI authentication  
 - **✅ Session IDs**: Proper session tracking and management
 - **✅ System Prompts**: Full support via SDK options
+- **✅ Session Continuity**: Conversation history across requests with session management
 
 ## Troubleshooting
 
