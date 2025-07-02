@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 import logging
+import secrets
+import string
 from typing import Optional, AsyncGenerator, Dict, Any
 from contextlib import asynccontextmanager
 
@@ -36,6 +38,60 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Global variable to store runtime-generated API key
+runtime_api_key = None
+
+def generate_secure_token(length: int = 32) -> str:
+    """Generate a secure random token for API authentication."""
+    alphabet = string.ascii_letters + string.digits + '-_'
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+def prompt_for_api_protection() -> Optional[str]:
+    """
+    Interactively ask user if they want API key protection.
+    Returns the generated token if user chooses protection, None otherwise.
+    """
+    # Don't prompt if API_KEY is already set via environment variable
+    if os.getenv("API_KEY"):
+        return None
+    
+    print("\n" + "="*60)
+    print("🔐 API Endpoint Security Configuration")
+    print("="*60)
+    print("Would you like to protect your API endpoint with an API key?")
+    print("This adds a security layer when accessing your server remotely.")
+    print("")
+    
+    while True:
+        try:
+            choice = input("Enable API key protection? (y/N): ").strip().lower()
+            
+            if choice in ['', 'n', 'no']:
+                print("✅ API endpoint will be accessible without authentication")
+                print("="*60)
+                return None
+            
+            elif choice in ['y', 'yes']:
+                token = generate_secure_token()
+                print("")
+                print("🔑 API Key Generated!")
+                print("="*60)
+                print(f"API Key: {token}")
+                print("="*60)
+                print("📋 IMPORTANT: Save this key - you'll need it for API calls!")
+                print("   Example usage:")
+                print(f'   curl -H "Authorization: Bearer {token}" \\')
+                print("        http://localhost:8000/v1/models")
+                print("="*60)
+                return token
+            
+            else:
+                print("Please enter 'y' for yes or 'n' for no (or press Enter for no)")
+                
+        except (EOFError, KeyboardInterrupt):
+            print("\n✅ Defaulting to no authentication")
+            return None
 
 # Initialize Claude CLI
 claude_cli = ClaudeCodeCLI(
@@ -411,12 +467,16 @@ async def health_check():
 @app.get("/v1/auth/status")
 async def get_auth_status():
     """Get Claude Code authentication status."""
+    from auth import auth_manager
+    
     auth_info = get_claude_code_auth_info()
+    active_api_key = auth_manager.get_api_key()
     
     return {
         "claude_code_auth": auth_info,
         "server_info": {
-            "api_key_required": bool(os.getenv("API_KEY")),
+            "api_key_required": bool(active_api_key),
+            "api_key_source": "environment" if os.getenv("API_KEY") else ("runtime" if runtime_api_key else "none"),
             "version": "1.0.0"
         }
     }
@@ -508,6 +568,10 @@ def run_server(port: int = None):
     """Run the server - used as Poetry script entry point."""
     import uvicorn
     import socket
+    
+    # Handle interactive API key protection
+    global runtime_api_key
+    runtime_api_key = prompt_for_api_protection()
     
     # Priority: CLI arg > ENV var > default
     if port is None:

@@ -9,14 +9,53 @@ error handling, chunk processing, and real-time display.
 from openai import OpenAI
 import time
 import sys
+import os
+import requests
 from typing import Optional, Generator
 import json
+
+
+def get_api_key(base_url: str = "http://localhost:8000") -> Optional[str]:
+    """Get the appropriate API key based on server configuration."""
+    # Check if user provided API key via environment
+    if os.getenv("API_KEY"):
+        return os.getenv("API_KEY")
+    
+    # Check server auth status
+    try:
+        response = requests.get(f"{base_url}/v1/auth/status")
+        if response.status_code == 200:
+            auth_data = response.json()
+            server_info = auth_data.get("server_info", {})
+            
+            if not server_info.get("api_key_required", False):
+                # No auth required
+                return "no-auth-required"
+            else:
+                # Auth required but no key provided
+                print("⚠️  Server requires API key but none provided.")
+                print("   Set API_KEY environment variable with your server's API key")
+                print("   Example: API_KEY=your-server-key python streaming.py")
+                return None
+    except Exception as e:
+        print(f"⚠️  Could not check server auth status: {e}")
+        print("   Assuming no authentication required")
+        
+    return "fallback-key"
 
 
 class StreamingClient:
     """Client for handling streaming responses."""
     
-    def __init__(self, base_url: str = "http://localhost:8000/v1", api_key: str = "dummy"):
+    def __init__(self, base_url: str = "http://localhost:8000/v1", api_key: Optional[str] = None):
+        if api_key is None:
+            # Auto-detect API key based on server configuration
+            server_base = base_url.replace("/v1", "")
+            api_key = get_api_key(server_base)
+            
+            if api_key is None:
+                raise ValueError("Server requires API key but none was provided. Set the API_KEY environment variable.")
+        
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         
     def stream_with_timing(self, messages: list, model: str = "claude-3-5-sonnet-20241022"):

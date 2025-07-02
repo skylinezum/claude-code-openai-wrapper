@@ -5,8 +5,37 @@ Run this after starting the server to ensure everything is set up correctly.
 """
 
 import sys
+import os
 import requests
 from openai import OpenAI
+
+def get_api_key():
+    """Get the appropriate API key for testing."""
+    # Check if user provided API key via environment
+    if os.getenv("TEST_API_KEY"):
+        return os.getenv("TEST_API_KEY")
+    
+    # Check server auth status
+    try:
+        response = requests.get("http://localhost:8000/v1/auth/status")
+        if response.status_code == 200:
+            auth_data = response.json()
+            server_info = auth_data.get("server_info", {})
+            
+            if not server_info.get("api_key_required", False):
+                # No auth required, use a dummy key
+                return "no-auth-required"
+            else:
+                # Auth required but no key provided
+                print("⚠️  Server requires API key but none provided.")
+                print("   Set TEST_API_KEY environment variable with your server's API key")
+                print("   Example: TEST_API_KEY=your-server-key python test_basic.py")
+                return None
+    except Exception as e:
+        print(f"⚠️  Could not check server auth status: {e}")
+        print("   Assuming no authentication required")
+        
+    return "fallback-dummy-key"
 
 def test_health_check():
     """Test the health endpoint."""
@@ -42,10 +71,16 @@ def test_models_endpoint():
 def test_openai_sdk():
     """Test with OpenAI SDK."""
     print("\nTesting OpenAI SDK integration...")
+    
+    api_key = get_api_key()
+    if api_key is None:
+        print("✗ Cannot run test - API key required but not provided")
+        return False
+    
     try:
         client = OpenAI(
             base_url="http://localhost:8000/v1",
-            api_key="dummy"  # Use dummy key if no auth configured
+            api_key=api_key
         )
         
         # Simple test
@@ -69,10 +104,16 @@ def test_openai_sdk():
 def test_streaming():
     """Test streaming functionality."""
     print("\nTesting streaming...")
+    
+    api_key = get_api_key()
+    if api_key is None:
+        print("✗ Cannot run test - API key required but not provided")
+        return False
+    
     try:
         client = OpenAI(
             base_url="http://localhost:8000/v1",
-            api_key="dummy"
+            api_key=api_key
         )
         
         stream = client.chat.completions.create(
@@ -107,6 +148,17 @@ def main():
     print("Claude Code OpenAI Wrapper - Basic Tests")
     print("="*50)
     print("Make sure the server is running: python main.py")
+    print("="*50)
+    
+    # Show API key status
+    api_key = get_api_key()
+    if api_key:
+        if api_key == "no-auth-required":
+            print("🔓 Server authentication: Not required")
+        else:
+            print("🔑 Server authentication: Required (using provided key)")
+    else:
+        print("❌ Server authentication: Required but no key available")
     print("="*50)
     
     tests = [

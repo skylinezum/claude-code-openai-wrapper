@@ -46,7 +46,7 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 - **Optional tool usage** - Enable Claude Code tools (Read, Write, Bash, etc.) when needed
 - **Fast default mode** - Tools disabled by default for OpenAI API compatibility
 - **Development mode** with auto-reload (`uvicorn --reload`)
-- **Optional API key protection** for FastAPI endpoints
+- **Interactive API key protection** - Optional security with auto-generated tokens
 - **Comprehensive logging** and debugging capabilities
 
 ## Quick Start
@@ -132,7 +132,7 @@ Edit the `.env` file:
 CLAUDE_CLI_PATH=claude
 
 # Optional API key for client authentication
-# Comment out or leave empty to allow unauthenticated access
+# If not set, server will prompt for interactive API key protection on startup
 # API_KEY=your-optional-api-key
 
 # Server port
@@ -144,6 +144,45 @@ MAX_TIMEOUT=600000
 # CORS origins
 CORS_ORIGINS=["*"]
 ```
+
+### 🔐 **API Security Configuration**
+
+The server supports **interactive API key protection** for secure remote access:
+
+1. **No API key set**: Server prompts "Enable API key protection? (y/N)" on startup
+   - Choose **No** (default): Server runs without authentication
+   - Choose **Yes**: Server generates and displays a secure API key
+
+2. **Environment API key set**: Uses the configured `API_KEY` without prompting
+
+```bash
+# Example: Interactive protection enabled
+poetry run python main.py
+
+# Output:
+# ============================================================
+# 🔐 API Endpoint Security Configuration
+# ============================================================
+# Would you like to protect your API endpoint with an API key?
+# This adds a security layer when accessing your server remotely.
+# 
+# Enable API key protection? (y/N): y
+# 
+# 🔑 API Key Generated!
+# ============================================================
+# API Key: Xf8k2mN9-vLp3qR5_zA7bW1cE4dY6sT0uI
+# ============================================================
+# 📋 IMPORTANT: Save this key - you'll need it for API calls!
+#    Example usage:
+#    curl -H "Authorization: Bearer Xf8k2mN9-vLp3qR5_zA7bW1cE4dY6sT0uI" \
+#         http://localhost:8000/v1/models
+# ============================================================
+```
+
+**Perfect for:**
+- 🏠 **Local development** - No authentication needed
+- 🌐 **Remote access** - Secure with generated tokens
+- 🔒 **VPN/Tailscale** - Add security layer for remote endpoints
 
 ## Running the Server
 
@@ -176,10 +215,9 @@ CORS_ORIGINS=["*"]
 ### Using curl
 
 ```bash
-# Basic chat completion
+# Basic chat completion (no auth)
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-optional-api-key" \
   -d '{
     "model": "claude-3-5-sonnet-20241022",
     "messages": [
@@ -187,10 +225,10 @@ curl -X POST http://localhost:8000/v1/chat/completions \
     ]
   }'
 
-# Streaming response
+# With API key protection (when enabled)
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-optional-api-key" \
+  -H "Authorization: Bearer your-generated-api-key" \
   -d '{
     "model": "claude-3-5-sonnet-20241022",
     "messages": [
@@ -205,11 +243,14 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ```python
 from openai import OpenAI
 
-# Configure client to use local server
+# Configure client (automatically detects auth requirements)
 client = OpenAI(
     base_url="http://localhost:8000/v1",
-    api_key="your-optional-api-key"  # or "dummy" if no auth
+    api_key="your-api-key-if-required"  # Only needed if protection enabled
 )
+
+# Alternative: Let examples auto-detect authentication
+# The wrapper's example files automatically check server auth status
 
 # Basic chat completion
 response = client.chat.completions.create(
@@ -304,7 +345,7 @@ response2 = client.chat.completions.create(
 ### Using Sessions with curl
 
 ```bash
-# First message
+# First message (add -H "Authorization: Bearer your-key" if auth enabled)
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -424,7 +465,12 @@ Run the comprehensive test suite:
 ```bash
 # Make sure server is running first  
 poetry run python test_basic.py
+
+# With API key protection enabled, set TEST_API_KEY:
+TEST_API_KEY=your-generated-key poetry run python test_basic.py
 ```
+
+The test suite automatically detects whether API key protection is enabled and provides helpful guidance for providing the necessary authentication.
 
 ### 🔍 **Authentication Test**
 Check authentication status:

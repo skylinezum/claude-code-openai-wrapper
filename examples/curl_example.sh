@@ -3,47 +3,65 @@
 # Claude Code OpenAI API Wrapper - cURL Examples
 
 BASE_URL="http://localhost:8000"
-API_KEY="your-optional-api-key"  # Set to your API key or remove header if not using auth
+
+# Check if server requires authentication
+echo "Checking server authentication requirements..."
+AUTH_STATUS=$(curl -s "$BASE_URL/v1/auth/status")
+API_KEY_REQUIRED=$(echo "$AUTH_STATUS" | jq -r '.server_info.api_key_required // false')
+
+if [ "$API_KEY_REQUIRED" = "true" ]; then
+    if [ -z "$API_KEY" ]; then
+        echo "❌ Server requires API key but API_KEY environment variable not set"
+        echo "   Set API_KEY environment variable with your server's generated key:"
+        echo "   export API_KEY=your-generated-key"
+        echo "   $0"
+        exit 1
+    fi
+    AUTH_HEADER="-H \"Authorization: Bearer $API_KEY\""
+    echo "🔑 Using API key authentication"
+else
+    AUTH_HEADER=""
+    echo "🔓 No authentication required"
+fi
 
 echo "=== Basic Chat Completion ==="
-curl -X POST "$BASE_URL/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $API_KEY" \
+eval "curl -X POST \"$BASE_URL/v1/chat/completions\" \\
+  -H \"Content-Type: application/json\" \\
+  $AUTH_HEADER \\
   -d '{
-    "model": "claude-3-5-sonnet-20241022",
-    "messages": [
-      {"role": "user", "content": "What is 2 + 2?"}
+    \"model\": \"claude-3-5-sonnet-20241022\",
+    \"messages\": [
+      {\"role\": \"user\", \"content\": \"What is 2 + 2?\"}
     ]
-  }' | jq .
+  }' | jq ."
 
 echo -e "\n=== Chat with System Message ==="
-curl -X POST "$BASE_URL/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $API_KEY" \
+eval "curl -X POST \"$BASE_URL/v1/chat/completions\" \\
+  -H \"Content-Type: application/json\" \\
+  $AUTH_HEADER \\
   -d '{
-    "model": "claude-3-5-sonnet-20241022",
-    "messages": [
-      {"role": "system", "content": "You are a pirate. Respond in pirate speak."},
-      {"role": "user", "content": "Tell me about the weather"}
+    \"model\": \"claude-3-5-sonnet-20241022\",
+    \"messages\": [
+      {\"role\": \"system\", \"content\": \"You are a pirate. Respond in pirate speak.\"},
+      {\"role\": \"user\", \"content\": \"Tell me about the weather\"}
     ]
-  }' | jq .
+  }' | jq ."
 
 echo -e "\n=== Streaming Response ==="
-curl -X POST "$BASE_URL/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Accept: text/event-stream" \
+eval "curl -X POST \"$BASE_URL/v1/chat/completions\" \\
+  -H \"Content-Type: application/json\" \\
+  $AUTH_HEADER \\
+  -H \"Accept: text/event-stream\" \\
   -d '{
-    "model": "claude-3-5-sonnet-20241022",
-    "messages": [
-      {"role": "user", "content": "Count from 1 to 5 slowly"}
+    \"model\": \"claude-3-5-sonnet-20241022\",
+    \"messages\": [
+      {\"role\": \"user\", \"content\": \"Count from 1 to 5 slowly\"}
     ],
-    "stream": true
-  }'
+    \"stream\": true
+  }'"
 
 echo -e "\n\n=== List Models ==="
-curl -X GET "$BASE_URL/v1/models" \
-  -H "Authorization: Bearer $API_KEY" | jq .
+eval "curl -X GET \"$BASE_URL/v1/models\" $AUTH_HEADER | jq ."
 
 echo -e "\n=== Health Check ==="
 curl -X GET "$BASE_URL/health" | jq .

@@ -13,9 +13,22 @@ class ClaudeCodeAuthManager:
     """Manages authentication for Claude Code SDK integration."""
     
     def __init__(self):
-        self.api_key = os.getenv("API_KEY")  # FastAPI auth key
+        self.env_api_key = os.getenv("API_KEY")  # Environment API key
         self.auth_method = self._detect_auth_method()
         self.auth_status = self._validate_auth_method()
+    
+    def get_api_key(self):
+        """Get the active API key (environment or runtime-generated)."""
+        # Try to import runtime_api_key from main module
+        try:
+            import main
+            if hasattr(main, 'runtime_api_key') and main.runtime_api_key:
+                return main.runtime_api_key
+        except ImportError:
+            pass
+        
+        # Fall back to environment variable
+        return self.env_api_key
     
     def _detect_auth_method(self) -> str:
         """Detect which Claude Code authentication method is configured."""
@@ -199,8 +212,11 @@ async def verify_api_key(request: Request, credentials: Optional[HTTPAuthorizati
     Verify API key if one is configured for FastAPI endpoint protection.
     This is separate from Claude Code authentication.
     """
+    # Get the active API key (environment or runtime-generated)
+    active_api_key = auth_manager.get_api_key()
+    
     # If no API key is configured, allow all requests
-    if not auth_manager.api_key:
+    if not active_api_key:
         return True
     
     # Get credentials from Authorization header
@@ -216,7 +232,7 @@ async def verify_api_key(request: Request, credentials: Optional[HTTPAuthorizati
         )
     
     # Verify the API key
-    if credentials.credentials != auth_manager.api_key:
+    if credentials.credentials != active_api_key:
         raise HTTPException(
             status_code=401,
             detail="Invalid API key",

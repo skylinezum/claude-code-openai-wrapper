@@ -8,15 +8,52 @@ with the Claude Code wrapper.
 
 from openai import OpenAI
 import os
+import requests
 from typing import Optional
 
 # Configuration
 BASE_URL = "http://localhost:8000/v1"
-API_KEY = os.getenv("API_KEY", "dummy")  # Use "dummy" if no auth required
 
 
-def create_client(base_url: str = BASE_URL, api_key: str = API_KEY) -> OpenAI:
+def get_api_key(base_url: str = "http://localhost:8000") -> Optional[str]:
+    """Get the appropriate API key based on server configuration."""
+    # Check if user provided API key via environment
+    if os.getenv("API_KEY"):
+        return os.getenv("API_KEY")
+    
+    # Check server auth status
+    try:
+        response = requests.get(f"{base_url}/v1/auth/status")
+        if response.status_code == 200:
+            auth_data = response.json()
+            server_info = auth_data.get("server_info", {})
+            
+            if not server_info.get("api_key_required", False):
+                # No auth required
+                return "no-auth-required"
+            else:
+                # Auth required but no key provided
+                print("⚠️  Server requires API key but none provided.")
+                print("   Set API_KEY environment variable with your server's API key")
+                print("   Example: API_KEY=your-server-key python openai_sdk.py")
+                return None
+    except Exception as e:
+        print(f"⚠️  Could not check server auth status: {e}")
+        print("   Assuming no authentication required")
+        
+    return "fallback-key"
+
+
+def create_client(base_url: str = BASE_URL, api_key: Optional[str] = None) -> OpenAI:
     """Create OpenAI client configured for Claude Code wrapper."""
+    if api_key is None:
+        # Auto-detect API key based on server configuration
+        server_base = base_url.replace("/v1", "")
+        api_key = get_api_key(server_base)
+        
+        if api_key is None:
+            raise ValueError("Server requires API key but none was provided. Set the API_KEY environment variable.")
+    
     return OpenAI(
         base_url=base_url,
         api_key=api_key
@@ -154,6 +191,22 @@ def error_handling_example(client: OpenAI):
 
 def main():
     """Run all examples."""
+    print("Claude Code OpenAI SDK Examples")
+    print("="*50)
+    
+    # Check authentication status
+    api_key = get_api_key()
+    if api_key:
+        if api_key == "no-auth-required":
+            print("🔓 Server authentication: Not required")
+        else:
+            print("🔑 Server authentication: Required (using provided key)")
+    else:
+        print("❌ Server authentication: Required but no key available")
+        return
+    
+    print("="*50)
+    
     # Create client
     client = create_client()
     
