@@ -44,10 +44,10 @@ class ClaudeCodeCLI:
             logger.info(f"Claude CLI found: {version_text}")
             
             # Test authentication by running a simple query with --print
-            # This will fail if not authenticated but won't hang
+            # Use Haiku for fastest/cheapest verification
             try:
                 auth_test_process = await asyncio.create_subprocess_exec(
-                    self.cli_path, "--print", "Hello",
+                    self.cli_path, "--print", "--model", "claude-3-5-haiku-20241022", "Hello",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )

@@ -2,6 +2,16 @@
 
 An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Code with any OpenAI client library.
 
+## Status
+
+✅ **Fully functional** - All core features working and tested:
+- ✅ Chat completions endpoint
+- ✅ Streaming responses  
+- ✅ OpenAI SDK compatibility
+- ✅ Model selection support
+- ✅ Automatic tool usage
+- ✅ Health and models endpoints
+
 ## Features
 
 - OpenAI-compatible `/v1/chat/completions` endpoint
@@ -57,8 +67,8 @@ Edit the `.env` file:
 CLAUDE_CLI_PATH=claude
 
 # Optional API key for client authentication
-# Leave empty to allow unauthenticated access
-API_KEY=your-optional-api-key
+# Comment out or leave empty to allow unauthenticated access
+# API_KEY=your-optional-api-key
 
 # Server port
 PORT=8000
@@ -72,9 +82,10 @@ CORS_ORIGINS=["*"]
 
 ## Running the Server
 
-1. Ensure Claude Code is authenticated:
+1. Verify Claude Code is installed and working:
    ```bash
-   claude auth status
+   claude --version
+   claude --print --model claude-3-5-haiku-20241022 "Hello"  # Test with fastest model
    ```
 
 2. Start the server:
@@ -166,7 +177,7 @@ for chunk in stream:
 - `claude-3-5-sonnet-20241022`
 - `claude-3-5-haiku-20241022`
 
-Note: Model parameter is currently ignored, and Claude Code will use its default model.
+The model parameter is passed to Claude Code via the `--model` flag.
 
 ## API Endpoints
 
@@ -193,18 +204,24 @@ Note: Model parameter is currently ignored, and Claude Code will use its default
 
 2. **Authentication errors**:
    ```bash
-   # Re-authenticate Claude Code
-   claude auth logout
-   claude auth login
+   # Test authentication with fastest model
+   claude --print --model claude-3-5-haiku-20241022 "Hello"
+   # If this fails, re-authenticate if needed
    ```
 
 3. **Timeout errors**:
    - Increase `MAX_TIMEOUT` in `.env`
    - Note: Claude Code can take time for complex requests
 
-## Development
+## Testing
 
-Run tests:
+Run the basic test suite:
+```bash
+# Make sure server is running first
+poetry run python test_basic.py
+```
+
+Run full tests:
 ```bash
 poetry run pytest tests/
 ```
