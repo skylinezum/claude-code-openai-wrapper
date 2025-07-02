@@ -11,7 +11,8 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 - ✅ **Multi-provider authentication** (API key, Bedrock, Vertex AI, CLI auth)
 - ✅ **System prompt support** via SDK options
 - ✅ Model selection support with validation
-- ✅ Automatic tool usage (Read, Write, Bash, etc.)
+- ✅ **Fast by default** - Tools disabled for OpenAI compatibility (5-10x faster)
+- ✅ Optional tool usage (Read, Write, Bash, etc.) when explicitly enabled
 - ✅ **Real-time cost and token tracking** from SDK
 - ✅ **Session continuity** with conversation history across requests 🆕
 - ✅ **Session management endpoints** for full session control 🆕
@@ -42,7 +43,8 @@ An OpenAI API-compatible wrapper for Claude Code, allowing you to use Claude Cod
 
 ### ⚡ **Advanced Features**
 - **System prompt support** via SDK options
-- **Automatic tool usage** - Read, Write, Bash, Glob, Grep, and more
+- **Optional tool usage** - Enable Claude Code tools (Read, Write, Bash, etc.) when needed
+- **Fast default mode** - Tools disabled by default for OpenAI API compatibility
 - **Development mode** with auto-reload (`uvicorn --reload`)
 - **Optional API key protection** for FastAPI endpoints
 - **Comprehensive logging** and debugging capabilities
@@ -218,6 +220,17 @@ response = client.chat.completions.create(
     ]
 )
 
+print(response.choices[0].message.content)
+# Output: Fast response without tool usage (default behavior)
+
+# Enable tools when you need them (e.g., to read files)
+response = client.chat.completions.create(
+    model="claude-3-5-sonnet-20241022",
+    messages=[
+        {"role": "user", "content": "What files are in the current directory?"}
+    ],
+    extra_body={"enable_tools": True}  # Enable tools for file access
+)
 print(response.choices[0].message.content)
 # Output: Claude will actually read your directory and list the files!
 

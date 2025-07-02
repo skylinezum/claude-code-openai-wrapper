@@ -27,6 +27,7 @@ class ChatCompletionRequest(BaseModel):
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
     session_id: Optional[str] = Field(default=None, description="Optional session ID for conversation continuity")
+    enable_tools: Optional[bool] = Field(default=False, description="Enable Claude Code tools (Read, Write, Bash, etc.) - disabled by default for OpenAI compatibility")
     
     @field_validator('n')
     @classmethod
